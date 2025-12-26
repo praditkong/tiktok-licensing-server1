@@ -33,15 +33,37 @@ export async function POST(request: Request) {
         }
 
         // 3. Device Logic (The 2-Device Limit)
-        let deviceIds: string[] = license.device_ids || [];
+        let deviceIds: any[] = license.device_ids || [];
 
         // Ensure it's an array (Postgres JSONB handling)
         if (typeof deviceIds === 'string') {
             try { deviceIds = JSON.parse(deviceIds); } catch (e) { deviceIds = []; }
         }
 
-        if (deviceIds.includes(deviceId)) {
-            // ALREADY REGISTERED -> OK
+        // --- MIGRATION: Convert String[] to Object[] ---
+        // If the first element is a string, assume all are strings and migrate.
+        if (deviceIds.length > 0 && typeof deviceIds[0] === 'string') {
+            deviceIds = deviceIds.map(id => ({
+                id: id,
+                name: 'Unknown Device',
+                last_seen: new Date().toISOString()
+            }));
+            // Save migration immediately? Or wait for update? 
+            // Better to wait for update loop to save writes, but for safety lets assuming we update later.
+        }
+
+        // Find current device in list
+        const existingDeviceIndex = deviceIds.findIndex((d: any) => d.id === deviceId);
+        const now = new Date().toISOString();
+
+        if (existingDeviceIndex !== -1) {
+            // ALREADY REGISTERED -> UPDATE Last Seen
+            deviceIds[existingDeviceIndex].last_seen = now;
+            // Also update name if provided (optional)
+            if (body.deviceName) deviceIds[existingDeviceIndex].name = body.deviceName;
+
+            await sql`UPDATE licenses SET device_ids = ${JSON.stringify(deviceIds)} WHERE id = ${license.id};`;
+
             return NextResponse.json({
                 success: true,
                 info: {
@@ -55,11 +77,22 @@ export async function POST(request: Request) {
         } else {
             // NEW DEVICE
             if (deviceIds.length >= 2) {
-                return NextResponse.json({ success: false, message: 'Maximum device limit (2) reached.' }, { status: 403 });
+                // Return Limit Reached with Current Devices (for Selection UI)
+                return NextResponse.json({
+                    success: false,
+                    message: 'Maximum device limit (2) reached.',
+                    code: 'LIMIT_REACHED',
+                    currentDevices: deviceIds // Return list for selection
+                }, { status: 403 });
             }
 
             // ADD DEVICE
-            deviceIds.push(deviceId);
+            const newDevice = {
+                id: deviceId,
+                name: body.deviceName || 'New Device',
+                last_seen: now
+            };
+            deviceIds.push(newDevice);
             await sql`UPDATE licenses SET device_ids = ${JSON.stringify(deviceIds)} WHERE id = ${license.id};`;
 
             return NextResponse.json({

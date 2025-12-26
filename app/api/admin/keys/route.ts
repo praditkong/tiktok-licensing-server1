@@ -60,6 +60,45 @@ export async function POST(request: Request) {
     }
 }
 
+// PATCH: Renew/Extend a key
+export async function PATCH(request: Request) {
+    if (!verifyAdmin(request)) {
+        return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    }
+
+    try {
+        const body = await request.json();
+        const { id, days } = body;
+
+        if (!id || !days) return NextResponse.json({ success: false, message: 'Missing id or days' }, { status: 400 });
+
+        // Get current key
+        const result = await sql`SELECT * FROM licenses WHERE id = ${id} LIMIT 1;`;
+        if (result.rowCount === 0) return NextResponse.json({ success: false, message: 'Key not found' }, { status: 404 });
+
+        const license = result.rows[0];
+        if (license.type !== 'monthly') {
+            return NextResponse.json({ success: false, message: 'Only monthly keys can be extended' }, { status: 400 });
+        }
+
+        // Calculate new expiry
+        let currentExpiry = new Date(license.expires_at);
+        const now = new Date();
+        // If expired, start from now. If active, add to current expiry.
+        if (currentExpiry < now) currentExpiry = now;
+
+        currentExpiry.setDate(currentExpiry.getDate() + parseInt(days));
+        const newExpiresAt = currentExpiry.toISOString();
+
+        await sql`UPDATE licenses SET expires_at = ${newExpiresAt}, status = 'active' WHERE id = ${id};`;
+
+        return NextResponse.json({ success: true, message: `Extended by ${days} days` });
+
+    } catch (error) {
+        return NextResponse.json({ success: false, message: 'Update Failed' }, { status: 500 });
+    }
+}
+
 // DELETE: Remove a key
 export async function DELETE(request: Request) {
     if (!verifyAdmin(request)) {

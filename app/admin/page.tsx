@@ -93,6 +93,26 @@ export default function AdminPage() {
         }
     };
 
+    const handleRenew = async (id: number) => {
+        if (!confirm("Renew this key for 30 days?")) return;
+        try {
+            const res = await fetch('/api/admin/keys', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+                body: JSON.stringify({ id, days: 30 })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                fetchKeys(password);
+            } else {
+                alert("Failed: " + data.message);
+            }
+        } catch (e) {
+            alert("Renew failed");
+        }
+    };
+
     // --- STYLES ---
     const S = {
         container: {
@@ -404,7 +424,16 @@ export default function AdminPage() {
                                         {k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}
                                     </td>
                                     <td style={S.td}>{k.device_ids?.length || 0} / 2</td>
-                                    <td style={{ ...S.td, textAlign: 'right' }}>
+                                    <td style={{ ...S.td, textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                        {k.type === 'monthly' && (
+                                            <button
+                                                onClick={() => handleRenew(k.id)}
+                                                style={{ background: 'transparent', border: '1px solid #059669', color: '#34d399', padding: '0.5rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold' }}
+                                                title="Renew +30 Days"
+                                            >
+                                                +30 Days
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => handleDelete(k.id)}
                                             style={{ background: 'transparent', border: '1px solid #7f1d1d', color: '#f87171', padding: '0.5rem', borderRadius: '0.5rem', cursor: 'pointer' }}
